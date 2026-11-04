@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   LANGUAGES,
+  MAX_IMAGES,
   type ErrorResponse,
   type Language,
   type Mode,
@@ -103,6 +104,9 @@ export default function Home() {
   const [solveError, setSolveError] = useState<string | null>(null);
   const [copyLabel, setCopyLabel] = useState("Copiar");
   const [refinementText, setRefinementText] = useState("");
+  // Parts of a tall exercise captured with "+ Parte", only in memory, sent with the final photo.
+  const [pendingParts, setPendingParts] = useState<string[]>([]);
+  const [partError, setPartError] = useState<string | null>(null);
   const isFullscreenSupported = useSyncExternalStore(
     subscribeToNothing,
     getIsFullscreenSupported,
@@ -116,8 +120,9 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
   const wantsCameraRef = useRef(false);
   const isSolvingRef = useRef(false);
-  // The last photo, kept only in memory so the answer can be refined without a new photo.
-  const lastImageRef = useRef<string | null>(null);
+  // The photos of the last exercise, kept only in memory so the answer can be refined
+  // without new photos.
+  const lastImagesRef = useRef<string[]>([]);
 
   const stopCamera = useCallback(() => {
     const stream = streamRef.current;
@@ -254,6 +259,26 @@ export default function Home() {
     }
   }
 
+  // Saves the current frame as one part and keeps the camera on for the next part.
+  function handleAddPart() {
+    if (isSolvingRef.current || cameraStatus !== "on" || pendingParts.length >= MAX_IMAGES - 1) {
+      return;
+    }
+    const image = captureFrame();
+    if (!image) {
+      setPartError("No se pudo capturar esta parte. Intenta de nuevo.");
+      return;
+    }
+    setPartError(null);
+    // Functional update: two quick taps must not go over the limit.
+    setPendingParts((parts) => (parts.length >= MAX_IMAGES - 1 ? parts : [...parts, image]));
+  }
+
+  function handleDiscardParts() {
+    setPendingParts([]);
+    setPartError(null);
+  }
+
   async function handleCapture() {
     if (isSolvingRef.current || cameraStatus !== "on") {
       return;
@@ -262,25 +287,28 @@ export default function Home() {
     // Release the camera right after the capture; "Tomar otra foto" turns it on again.
     wantsCameraRef.current = false;
     stopCamera();
+    const images = image ? [...pendingParts, image] : [];
+    setPendingParts([]);
+    setPartError(null);
     if (!image) {
       setSolveStatus("error");
       setSolveError("No se pudo capturar la imagen. Intenta de nuevo.");
       return;
     }
 
-    lastImageRef.current = image;
+    lastImagesRef.current = images;
     setResult(null);
-    await requestSolve({ image, mode, language, deepReview });
+    await requestSolve({ images, mode, language, deepReview });
   }
 
   async function handleRefine() {
     const refinement = refinementText.trim();
-    const image = lastImageRef.current;
-    if (isSolvingRef.current || refinement.length === 0 || !image || !result) {
+    const images = lastImagesRef.current;
+    if (isSolvingRef.current || refinement.length === 0 || images.length === 0 || !result) {
       return;
     }
     const isSuccess = await requestSolve({
-      image,
+      images,
       mode,
       language,
       deepReview,
@@ -296,7 +324,9 @@ export default function Home() {
     if (isSolvingRef.current) {
       return;
     }
-    lastImageRef.current = null;
+    lastImagesRef.current = [];
+    setPendingParts([]);
+    setPartError(null);
     setResult(null);
     setSolveError(null);
     setSolveStatus("idle");
@@ -322,6 +352,7 @@ export default function Home() {
   const showResultPanel = solveStatus === "done" || solveStatus === "error" || isRefining;
   const isCapturing = solveStatus === "idle";
   const canRefine = result !== null && !result.needsNewPhoto;
+  const canShowAddPart = cameraStatus === "on" && !isSolving;
 
   return (
     <main className={styles.page}>
@@ -414,22 +445,60 @@ export default function Home() {
       </section>
       <canvas ref={canvasRef} className={styles.hiddenCanvas} />
 
-      {!showResultPanel && (
-        <button
-          type="button"
-          className={styles.captureButton}
-          onClick={handleCapture}
-          disabled={cameraStatus !== "on" || isSolving}
-        >
-          {isSolving ? (
-            <>
-              <span className={styles.spinnerSmall} aria-hidden="true" />
-              Resolviendo...
-            </>
+      {!showResultPanel && (pendingParts.length > 0 || partError) && (
+        <div className={styles.partsChip} aria-live="polite">
+          {partError ? (
+            <span className={styles.errorText}>{partError}</span>
           ) : (
-            "Tomar foto"
+            <span>
+              {pendingParts.length === 1
+                ? "1 parte guardada"
+                : `${pendingParts.length} partes guardadas`}
+            </span>
           )}
-        </button>
+          {pendingParts.length > 0 && (
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={handleDiscardParts}
+              disabled={isSolving}
+            >
+              Descartar
+            </button>
+          )}
+        </div>
+      )}
+
+      {!showResultPanel && (
+        <div className={styles.captureRow}>
+          <button
+            type="button"
+            className={styles.captureButton}
+            onClick={handleCapture}
+            disabled={cameraStatus !== "on" || isSolving}
+          >
+            {isSolving ? (
+              <>
+                <span className={styles.spinnerSmall} aria-hidden="true" />
+                Resolviendo...
+              </>
+            ) : (
+              "Tomar foto"
+            )}
+          </button>
+          {canShowAddPart && (
+            <button
+              type="button"
+              className={styles.addPartButton}
+              onClick={handleAddPart}
+              disabled={pendingParts.length >= MAX_IMAGES - 1}
+              aria-label="Capturar esta parte y seguir"
+              title="Capturar esta parte y seguir"
+            >
+              + Parte
+            </button>
+          )}
+        </div>
       )}
 
       {showResultPanel && (

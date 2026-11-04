@@ -190,6 +190,57 @@
   cursor: default;
 }
 
+/* The main capture button plus the optional "+ Parte" button for tall exercises. */
+.captureRow {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.captureRow .captureButton {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.addPartButton {
+  flex-shrink: 0;
+  padding: 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addPartButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.partsChip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+
+.linkButton {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .secondaryButton {
   padding: 10px 18px;
   border: none;

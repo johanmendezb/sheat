@@ -12,11 +12,15 @@ export const LANGUAGES = [
 
 export type Language = (typeof LANGUAGES)[number];
 
+// Max photos per exercise: a tall exercise can be captured in several parts.
+export const MAX_IMAGES = 6;
+
 export type SolveRequest = {
-  image: string;
+  // 1 to MAX_IMAGES data URLs, in order from top to bottom of the same exercise.
+  images: string[];
   mode: Mode;
   language: Language;
-  // Optional note to adjust the current answer for the same photo.
+  // Optional note to adjust the current answer for the same photos.
   refinement?: string;
   // The current answer serialized with JSON.stringify, sent with a refinement.
   previousAnswer?: string;
