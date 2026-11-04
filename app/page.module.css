@@ -1,0 +1,357 @@
+/* Safe-area insets keep content clear of the notch and home indicator (viewport-fit=cover). */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(8px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+    calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+  min-height: 100dvh;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.segment,
+.segmentActive {
+  border: none;
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  background: transparent;
+}
+
+.segmentActive {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.segment:disabled,
+.segmentActive:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.languageLabel {
+  display: inline-flex;
+}
+
+.languageSelect {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.875rem;
+  background: var(--surface);
+}
+
+/* A checkbox drawn as a small switch. */
+.deepToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.deepToggleInput {
+  appearance: none;
+  position: relative;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.deepToggleInput::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s;
+}
+
+.deepToggleInput:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.deepToggleInput:checked::after {
+  transform: translateX(12px);
+  background: var(--accent-text);
+}
+
+.deepToggleInput:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fullscreenButton {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 10px;
+  background: var(--surface);
+  font-size: 1.125rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Grows to fill the height left by the presets and the capture button. */
+.camera {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 240px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  scroll-margin-top: 12px;
+}
+
+.video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cameraOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+.cameraError {
+  color: #ffb4ab;
+  font-size: 0.875rem;
+  max-width: 320px;
+}
+
+.hiddenCanvas {
+  display: none;
+}
+
+.captureButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.captureButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.secondaryButton {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #16181d;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.spinner,
+.spinnerSmall {
+  display: inline-block;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: currentColor;
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  color: #ffffff;
+}
+
+.spinnerSmall {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.errorText {
+  color: var(--error);
+}
+
+.message,
+.answer {
+  font-size: 1rem;
+}
+
+.answer {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.exercise {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.explanation {
+  font-size: 0.9375rem;
+  white-space: pre-wrap;
+}
+
+.codeBlock {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--code-background);
+}
+
+.codeHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.codeLanguage {
+  color: var(--muted);
+}
+
+.copyButton {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  background: var(--surface);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.code,
+.output {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.output {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-background);
+  white-space: pre-wrap;
+}
+
+.edgeCases {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.9375rem;
+}
+
+.subheading {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.refineForm {
+  display: flex;
+  gap: 8px;
+}
+
+.refineInput {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  background: var(--surface);
+}
+
+.refineButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refineButton:disabled,
+.refineInput:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
