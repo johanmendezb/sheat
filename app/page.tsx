@@ -1,9 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { flushSync } from "react-dom";
 import {
   LANGUAGES,
   MAX_IMAGES,
+  MAX_QUESTION_CHARACTERS,
   type ErrorResponse,
   type Language,
   type Mode,
@@ -14,9 +23,53 @@ import styles from "./page.module.css";
 
 type CameraStatus = "off" | "starting" | "on";
 type SolveStatus = "idle" | "solving" | "done" | "error";
+// "editing" is the textarea: the reviewed transcript or the keyboard dictation fallback.
+type VoicePanel = "closed" | "listening" | "editing";
 
 const MAX_IMAGE_SIDE = 2000;
 const JPEG_QUALITY = 0.85;
+// Seconds before a recognized question is sent on its own.
+const VOICE_COUNTDOWN_SECONDS = 2;
+const NO_SPEECH_MESSAGE = "No se escuchó nada, intenta de nuevo.";
+
+// The Web Speech API is not in the TypeScript DOM types; only the parts used here.
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: { results: SpeechRecognitionResultList }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type SpeechWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
+function getSpeechRecognition(): SpeechRecognitionConstructor | null {
+  const speechWindow = window as SpeechWindow;
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function getSpeechLanguage(): string {
+  if (navigator.language.toLowerCase().startsWith("es")) {
+    return navigator.language;
+  }
+  return "es-ES";
+}
+
+// Joins every result so far (interim ones included) into one text.
+function getTranscript(results: SpeechRecognitionResultList): string {
+  let transcript = "";
+  for (let index = 0; index < results.length; index++) {
+    transcript += results[index][0].transcript;
+  }
+  return transcript;
+}
 
 // Safari (including iPad) only exposes the prefixed fullscreen API.
 type WebkitDocument = Document & {
@@ -107,6 +160,16 @@ export default function Home() {
   // Parts of a tall exercise captured with "+ Parte", only in memory, sent with the final photo.
   const [pendingParts, setPendingParts] = useState<string[]>([]);
   const [partError, setPartError] = useState<string | null>(null);
+  const [voicePanel, setVoicePanel] = useState<VoicePanel>("closed");
+  // The live or editable text of a voice question, only in memory.
+  const [voiceText, setVoiceText] = useState("");
+  const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
+  // True when the textarea is the keyboard dictation fallback instead of a reviewed transcript.
+  const [isDictation, setIsDictation] = useState(false);
+  // Seconds left before the reviewed transcript is sent; null when there is no countdown.
+  const [countdown, setCountdown] = useState<number | null>(null);
+  // The question of the last voice solve, so "Refinar" resends it without images.
+  const [lastQuestion, setLastQuestion] = useState<string | null>(null);
   const isFullscreenSupported = useSyncExternalStore(
     subscribeToNothing,
     getIsFullscreenSupported,
@@ -123,6 +186,8 @@ export default function Home() {
   // The photos of the last exercise, kept only in memory so the answer can be refined
   // without new photos.
   const lastImagesRef = useRef<string[]>([]);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const voiceTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const stopCamera = useCallback(() => {
     const stream = streamRef.current;
@@ -179,6 +244,8 @@ export default function Home() {
     function handleVisibilityChange() {
       if (document.hidden) {
         stopCamera();
+        // Stopping keeps what was heard; the microphone must not stay on in the background.
+        recognitionRef.current?.stop();
       } else if (wantsCameraRef.current) {
         startCamera();
       }
@@ -194,6 +261,8 @@ export default function Home() {
         }
       }
       streamRef.current = null;
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
     };
   }, [startCamera, stopCamera]);
 
@@ -297,18 +366,157 @@ export default function Home() {
     }
 
     lastImagesRef.current = images;
+    setLastQuestion(null);
+    setVoiceMessage(null);
     setResult(null);
     await requestSolve({ images, mode, language, deepReview });
   }
 
+  // Opens the textarea so the user can dictate with the keyboard microphone.
+  function openDictation() {
+    // flushSync renders the textarea now, so focusing it still counts as part of the tap
+    // and iOS can open the keyboard.
+    flushSync(() => {
+      setIsDictation(true);
+      setCountdown(null);
+      setVoicePanel("editing");
+    });
+    voiceTextareaRef.current?.focus();
+  }
+
+  function handleVoiceStart() {
+    if (isSolvingRef.current || voicePanel !== "closed") {
+      return;
+    }
+    setPendingParts([]);
+    setPartError(null);
+    setVoiceMessage(null);
+    setVoiceText("");
+    const SpeechRecognition = getSpeechRecognition();
+    if (!SpeechRecognition) {
+      openDictation();
+      return;
+    }
+
+    // The browser asks for the microphone here, only after the tap.
+    const recognition = new SpeechRecognition();
+    recognition.lang = getSpeechLanguage();
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    let transcript = "";
+    let errorMessage: string | null = null;
+    let shouldFallBack = false;
+    recognition.onresult = (event) => {
+      transcript = getTranscript(event.results);
+      setVoiceText(transcript);
+    };
+    recognition.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        errorMessage = "No diste permiso para usar el micrófono. Puedes dictar con el teclado.";
+        shouldFallBack = true;
+      } else if (event.error === "no-speech") {
+        errorMessage = NO_SPEECH_MESSAGE;
+      } else if (event.error !== "aborted") {
+        errorMessage = "No se pudo usar el reconocimiento de voz. Intenta de nuevo.";
+      }
+    };
+    // Runs after "Detener", after an error, or when recognition ends by itself.
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      const question = transcript.trim();
+      if (shouldFallBack) {
+        setVoiceMessage(errorMessage);
+        setVoiceText("");
+        openDictation();
+        return;
+      }
+      if (question.length === 0) {
+        setVoiceMessage(errorMessage ?? NO_SPEECH_MESSAGE);
+        setVoicePanel("closed");
+        return;
+      }
+      setVoiceText(question);
+      setIsDictation(false);
+      setCountdown(VOICE_COUNTDOWN_SECONDS);
+      setVoicePanel("editing");
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      openDictation();
+      return;
+    }
+    recognitionRef.current = recognition;
+    setVoicePanel("listening");
+  }
+
+  function handleVoiceStop() {
+    recognitionRef.current?.stop();
+  }
+
+  // The first tap only stops the countdown; with no countdown it closes the panel.
+  function handleVoiceCancel() {
+    if (countdown !== null) {
+      setCountdown(null);
+      return;
+    }
+    setVoicePanel("closed");
+    setVoiceText("");
+    setVoiceMessage(null);
+  }
+
+  async function submitVoiceQuestion() {
+    const question = voiceText.trim();
+    if (isSolvingRef.current || question.length === 0) {
+      return;
+    }
+    // Same as a photo capture: the camera is released while solving.
+    wantsCameraRef.current = false;
+    stopCamera();
+    setPendingParts([]);
+    setPartError(null);
+    setCountdown(null);
+    setVoicePanel("closed");
+    setVoiceText("");
+    setVoiceMessage(null);
+    lastImagesRef.current = [];
+    setLastQuestion(question);
+    setResult(null);
+    await requestSolve({ question, mode, language, deepReview });
+  }
+
+  // An Effect Event reads the latest text and presets when the countdown ends.
+  const onCountdownEnd = useEffectEvent(() => {
+    submitVoiceQuestion();
+  });
+
+  useEffect(() => {
+    if (countdown === null) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (countdown > 1) {
+        setCountdown(countdown - 1);
+      } else {
+        setCountdown(null);
+        onCountdownEnd();
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
   async function handleRefine() {
     const refinement = refinementText.trim();
     const images = lastImagesRef.current;
-    if (isSolvingRef.current || refinement.length === 0 || images.length === 0 || !result) {
+    const hasSource = images.length > 0 || lastQuestion !== null;
+    if (isSolvingRef.current || refinement.length === 0 || !hasSource || !result) {
       return;
     }
+    // A voice answer is refined with the same question and no images.
+    const source = lastQuestion !== null ? { question: lastQuestion } : { images };
     const isSuccess = await requestSolve({
-      images,
+      ...source,
       mode,
       language,
       deepReview,
@@ -320,11 +528,10 @@ export default function Home() {
     }
   }
 
-  function handleTakeAnotherPhoto() {
-    if (isSolvingRef.current) {
-      return;
-    }
+  function resetResult() {
     lastImagesRef.current = [];
+    setLastQuestion(null);
+    setVoiceMessage(null);
     setPendingParts([]);
     setPartError(null);
     setResult(null);
@@ -332,8 +539,24 @@ export default function Home() {
     setSolveStatus("idle");
     setCopyLabel("Copiar");
     setRefinementText("");
+  }
+
+  function handleTakeAnotherPhoto() {
+    if (isSolvingRef.current) {
+      return;
+    }
+    resetResult();
     startCamera();
     cameraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // For a voice question that was not understood: listen again instead of opening the camera.
+  function handleRetryVoice() {
+    if (isSolvingRef.current) {
+      return;
+    }
+    resetResult();
+    handleVoiceStart();
   }
 
   async function handleCopy(code: string) {
@@ -353,6 +576,7 @@ export default function Home() {
   const isCapturing = solveStatus === "idle";
   const canRefine = result !== null && !result.needsNewPhoto;
   const canShowAddPart = cameraStatus === "on" && !isSolving;
+  const shouldRetryVoice = lastQuestion !== null && result !== null && result.needsNewPhoto;
 
   return (
     <main className={styles.page}>
@@ -469,7 +693,79 @@ export default function Home() {
         </div>
       )}
 
-      {!showResultPanel && (
+      {!showResultPanel && voiceMessage && (
+        <p className={styles.voiceMessage} aria-live="polite">
+          {voiceMessage}
+        </p>
+      )}
+
+      {!showResultPanel && voicePanel === "listening" && (
+        <section className={styles.voicePanel} aria-label="Escuchando">
+          <div className={styles.listeningRow}>
+            <span className={styles.pulseDot} aria-hidden="true" />
+            <span>Escuchando...</span>
+          </div>
+          <p className={styles.transcript} aria-live="polite">
+            {voiceText || "Habla ahora"}
+          </p>
+          <button type="button" className={styles.captureButton} onClick={handleVoiceStop}>
+            Detener
+          </button>
+        </section>
+      )}
+
+      {!showResultPanel && voicePanel === "editing" && (
+        <form
+          className={styles.voicePanel}
+          aria-label="Pregunta por voz"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitVoiceQuestion();
+          }}
+        >
+          <label className={styles.visuallyHidden} htmlFor="voice-question">
+            Tu pregunta
+          </label>
+          <textarea
+            id="voice-question"
+            ref={voiceTextareaRef}
+            className={styles.voiceTextarea}
+            value={voiceText}
+            onChange={(event) => {
+              setCountdown(null);
+              setVoiceText(event.target.value);
+            }}
+            onFocus={() => setCountdown(null)}
+            maxLength={MAX_QUESTION_CHARACTERS}
+            rows={3}
+            autoFocus={isDictation}
+          />
+          {countdown !== null && (
+            <p className={styles.voiceHint} aria-live="polite">
+              Resolviendo en {countdown} s...
+            </p>
+          )}
+          {countdown === null && isDictation && (
+            <p className={styles.voiceHint}>Toca el micrófono del teclado para dictar tu pregunta</p>
+          )}
+          <div className={styles.voiceActions}>
+            {countdown === null && (
+              <button
+                type="submit"
+                className={styles.captureButton}
+                disabled={voiceText.trim().length === 0}
+              >
+                Resolver
+              </button>
+            )}
+            <button type="button" className={styles.addPartButton} onClick={handleVoiceCancel}>
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+
+      {!showResultPanel && voicePanel === "closed" && (
         <div className={styles.captureRow}>
           <button
             type="button"
@@ -498,6 +794,16 @@ export default function Home() {
               + Parte
             </button>
           )}
+          <button
+            type="button"
+            className={styles.addPartButton}
+            onClick={handleVoiceStart}
+            disabled={isSolving}
+            aria-label="Preguntar por voz"
+            title="Preguntar por voz"
+          >
+            Voz
+          </button>
         </div>
       )}
 
@@ -596,10 +902,10 @@ export default function Home() {
           <button
             type="button"
             className={styles.captureButton}
-            onClick={handleTakeAnotherPhoto}
+            onClick={shouldRetryVoice ? handleRetryVoice : handleTakeAnotherPhoto}
             disabled={isSolving}
           >
-            Tomar otra foto
+            {shouldRetryVoice ? "Intentar de nuevo" : "Tomar otra foto"}
           </button>
         </section>
       )}

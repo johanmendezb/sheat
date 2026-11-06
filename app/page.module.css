@@ -406,3 +406,73 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* Voice question: the listening panel and the editable transcript share this box. */
+.voicePanel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.listeningRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.pulseDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--error);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+}
+
+.transcript {
+  max-height: 30vh;
+  overflow-y: auto;
+  font-size: 1rem;
+  white-space: pre-wrap;
+}
+
+/* 16px font keeps iOS from zooming in when the textarea gets focus. */
+.voiceTextarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 1rem;
+  background: var(--surface);
+  resize: vertical;
+}
+
+.voiceHint,
+.voiceMessage {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.voiceActions {
+  display: flex;
+  gap: 8px;
+}
+
+.voiceActions .captureButton {
+  flex: 1 1 auto;
+  min-width: 0;
+}
